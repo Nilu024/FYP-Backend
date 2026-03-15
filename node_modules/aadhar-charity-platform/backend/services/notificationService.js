@@ -1,0 +1,157 @@
+const webpush = require("web-push");
+const Notification = require("../models/Notification");
+const User = require("../models/User");
+
+// Configure VAPID
+webpush.setVapidDetails(
+  process.env.VAPID_EMAIL,
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
+
+/**
+ * Send a push notification to a single user
+ */
+const sendPushToUser = async (userId, payload) => {
+  const user = await User.findById(userId).select("pushSubscriptions");
+  if (!user || !user.pushSubscriptions.length) return;
+
+  const results = [];
+  for (const sub of user.pushSubscriptions) {
+    try {
+      await webpush.sendNotification(
+        { endpoint: sub.endpoint, keys: sub.keys },
+        JSON.stringify(payload)
+      );
+      results.push({ success: true, endpoint: sub.endpoint });
+    } catch (err) {
+      // Remove stale subscriptions (410 = subscription expired)
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        user.pushSubscriptions = user.pushSubscriptions.filter(
+          (s) => s.endpoint !== sub.endpoint
+        );
+        await user.save();
+      }
+      results.push({ success: false, endpoint: sub.endpoint, error: err.message });
+    }
+  }
+  return results;
+};
+
+/**
+ * Send notification to all followers of a charity
+ */
+const notifyCharityFollowers = async (charityId, { title, body, type, data }) => {
+  const users = await User.find({
+    followedCharities: charityId,
+    isActive: true,
+  }).select("_id pushSubscriptions");
+
+  const payload = {
+    title,
+    body,
+    icon: "/icons/icon-192x192.png",
+    badge: "/icons/badge-72x72.png",
+    data: { type, ...data, url: data?.url || "/dashboard" },
+    tag: `${type}-${charityId}`,
+    requireInteraction: type === "urgent_need" || type === "critical",
+  };
+
+  // Save in-app notifications in bulk
+  const notifications = users.map((user) => ({
+    recipient: user._id,
+    title,
+    body,
+    type,
+    data,
+    channel: "in_app",
+  }));
+
+  if (notifications.length > 0) {
+    await Notification.insertMany(notifications);
+  }
+
+  // Send push notifications
+  const pushPromises = users
+    .filter((u) => u.pushSubscriptions.length > 0)
+    .map((u) => sendPushToUser(u._id, payload));
+
+  await Promise.allSettled(pushPromises);
+
+  return { sent: users.length };
+};
+
+/**
+ * Send notification to a specific user
+ */
+const sendUserNotification = async (userId, { title, body, type, data }) => {
+  // Save in-app
+  await Notification.create({ recipient: userId, title, body, type, data });
+
+  // Push
+  await sendPushToUser(userId, {
+    title,
+    body,
+    icon: "/icons/icon-192x192.png",
+    data: { type, ...data },
+  });
+};
+
+/**
+ * Broadcast urgent need to users in proximity
+ */
+const broadcastUrgentNeed = async (need, charity) => {
+  const maxDistMeters = 25 * 1000; // 25km radius for urgent alerts
+
+  const nearbyUsers = await User.find({
+    "location.coordinates": {
+      $near: {
+        $geometry: { type: "Point", coordinates: charity.location.coordinates },
+        $maxDistance: maxDistMeters,
+      },
+    },
+    isActive: true,
+  }).select("_id pushSubscriptions");
+
+  const payload = {
+    title: `🚨 Urgent Need Near You`,
+    body: `${charity.name}: ${need.title}`,
+    icon: "/icons/icon-192x192.png",
+    badge: "/icons/badge-72x72.png",
+    data: {
+      type: "urgent_need",
+      url: `/needs/${need._id}`,
+      needId: need._id.toString(),
+      charityId: charity._id.toString(),
+    },
+    tag: `urgent-${need._id}`,
+    requireInteraction: true,
+  };
+
+  const notifications = nearbyUsers.map((u) => ({
+    recipient: u._id,
+    title: payload.title,
+    body: payload.body,
+    type: "urgent_need",
+    data: payload.data,
+  }));
+
+  if (notifications.length > 0) {
+    await Notification.insertMany(notifications);
+  }
+
+  const pushPromises = nearbyUsers
+    .filter((u) => u.pushSubscriptions.length > 0)
+    .map((u) => sendPushToUser(u._id, payload));
+
+  await Promise.allSettled(pushPromises);
+
+  return { reached: nearbyUsers.length };
+};
+
+module.exports = {
+  sendPushToUser,
+  notifyCharityFollowers,
+  sendUserNotification,
+  broadcastUrgentNeed,
+};
