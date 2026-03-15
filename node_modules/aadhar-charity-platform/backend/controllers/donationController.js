@@ -11,10 +11,26 @@ const User = require("../models/User");
 // @access  Private
 exports.createDonation = async (req, res, next) => {
   try {
-    const { needId, charityId, amount, message, isAnonymous, paymentMethod } = req.body;
+    const {
+      needId: needIdFromBody,
+      need: needIdAlt,
+      charityId: charityIdFromBody,
+      charity: charityAlt,
+      amount,
+      message,
+      isAnonymous,
+      paymentMethod,
+    } = req.body;
+
+    const needId = needIdFromBody || needIdAlt;
+    const charityId = charityIdFromBody || charityAlt;
+
+    if (!needId) {
+      return res.status(400).json({ success: false, error: "needId is required" });
+    }
 
     const need = await Need.findById(needId).populate("charity");
-    if (!need || need.status !== "approved") {
+    if (!need || need.status === "rejected" || need.status === "completed" || (need.deadline && new Date() > need.deadline)) {
       return res.status(404).json({ success: false, error: "Need not found or not accepting donations" });
     }
 
