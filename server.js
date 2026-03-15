@@ -77,6 +77,11 @@ app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "AADHAR API is running", env: process.env.NODE_ENV });
 });
 
+// API 404 handler
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ success: false, error: 'API endpoint not found' });
+});
+
 // Catch-all handler: send back index.html for client-side routing
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
