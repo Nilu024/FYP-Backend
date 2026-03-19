@@ -9,13 +9,13 @@ const createTransporter = () => {
     port: parseInt(process.env.SMTP_PORT) || 587,
     secure: process.env.SMTP_SECURE === "true",
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      user: process.env.SMTP_EMAIL,
+      pass: process.env.SMTP_PASSWORD,
     },
   });
 };
 
-const FROM = `"${process.env.EMAIL_FROM_NAME || "AADHAR"}" <${process.env.EMAIL_FROM_ADDRESS || process.env.SMTP_USER}>`;
+const FROM = `"${process.env.EMAIL_FROM_NAME || "AADHAR"}" <${process.env.EMAIL_FROM_ADDRESS || process.env.SMTP_EMAIL}>`;
 const APP_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 // ─── HTML Email Template ───────────────────────────────────────────────────
@@ -124,7 +124,7 @@ const fmt = (n) =>
 
 // ─── Send a single email ───────────────────────────────────────────────────
 const sendEmail = async ({ to, subject, html, text }) => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
     console.warn("⚠  Email not configured — skipping send to", to);
     return false;
   }
