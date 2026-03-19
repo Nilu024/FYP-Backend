@@ -349,9 +349,58 @@ const sendDonationConfirmEmail = async (user, donation, need, charity) => {
   });
 };
 
+const sendOTPEmail = async (user, otp) => {
+  const body = `
+    <p class="greeting">Hi ${user.name?.split(" ")[0] || "there"}! 👋</p>
+    <p class="body-text">Please verify your email address to complete registration on AADHAR.</p>
+    
+    <div style="background: linear-gradient(135deg, #10b981, #059669); color: white; text-align: center; padding: 40px 20px; border-radius: 20px; margin: 32px 0;">
+      <div style="font-size: 48px; font-weight: 800; letter-spacing: 8px; margin-bottom: 8px;">${otp}</div>
+      <div style="font-size: 16px; opacity: 0.95;">Your verification code</div>
+    </div>
+    
+    <div class="tip-box">
+      <div class="tip-text">
+        📱 Enter this 6-digit code in the app to verify your email.<br/>
+        ⌛ Code expires in <strong>10 minutes</strong>.<br/>
+        🔒 This code can only be used once.
+      </div>
+    </div>
+    
+    <p class="body-text" style="font-size: 14px; color: #666;">
+      Didn't request this? Ignore this email or contact support@aadhar.in
+    </p>
+  `;
+
+  const ok = await sendEmail({
+    to: user.email,
+    subject: `Your AADHAR Verification Code is ${otp}`,
+    html: baseTemplate({
+      title: "Verify Your Email",
+      preheader: `Your 6-digit code: ${otp}`,
+      body,
+    }),
+    text: `Hi ${user.name},
+
+Your AADHAR verification code is: ${otp}
+
+Enter this code to verify your email. It expires in 10 minutes.
+
+If you didn't create an account, ignore this email.
+
+AADHAR Team`,
+
+  });
+
+  if (ok) console.log(`✅ OTP email sent to ${user.email}`);
+  return ok;
+};
+
 module.exports = {
   sendEmail,
   sendNewNeedEmailAlerts,
   sendWelcomeEmail,
   sendDonationConfirmEmail,
+  sendOTPEmail,
 };
+
