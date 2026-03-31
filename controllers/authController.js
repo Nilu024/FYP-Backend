@@ -27,6 +27,8 @@ const generateOTPData = async () => {
 // Register
 const register = async (req, res, next) => {
   try {
+    console.log("🔐 Register attempt:", { email: req.body.email, role: req.body.role });
+
     const { name, email, password, role, location } = req.body;
 
     if (!name || !email || !password) {
@@ -39,6 +41,8 @@ const register = async (req, res, next) => {
     let user = await User.findOne({ email }).select("+otp +otpExpiry");
     const { otp, hashedOtp, otpExpiry } = await generateOTPData();
     const normalizedRole = role === "charity" ? "charity" : "donor";
+
+    console.log("👤 User lookup result:", user ? "existing user found" : "new user");
 
     if (user && user.isVerified) {
       return res.status(400).json({ success: false, error: "User already exists" });
@@ -53,6 +57,7 @@ const register = async (req, res, next) => {
         user.otp = hashedOtp;
         user.otpExpiry = otpExpiry;
         await user.save();
+        console.log("🔄 Updated existing unverified user");
       } else {
         user = await User.create({
           name,
@@ -64,6 +69,7 @@ const register = async (req, res, next) => {
           otp: hashedOtp,
           otpExpiry,
         });
+        console.log("🆕 Created new user");
       }
 
       if (admin) {
@@ -72,36 +78,44 @@ const register = async (req, res, next) => {
           if (!user.firebaseUid) {
             user.firebaseUid = existingFbUser.uid;
             await user.save();
+            console.log("🔗 Linked existing Firebase user");
           }
         } catch (fbErr) {
           if (fbErr.code === 'auth/user-not-found' || fbErr.errorInfo?.code === 'auth/user-not-found') {
             const created = await admin.auth().createUser({ email, password, displayName: name });
             user.firebaseUid = created.uid;
             await user.save();
+            console.log("🆕 Created Firebase user");
           } else {
             console.warn('Firebase user sync failed:', fbErr.message || fbErr);
           }
         }
+      } else {
+        console.warn('Firebase admin not configured, skipping Firebase user creation');
       }
     };
 
     await createOrUpdateLocalUser();
 
+    console.log("📧 Attempting to send OTP email...");
     const emailSent = await sendOTPEmail(user, otp);
 
     if (!emailSent) {
+      console.error("❌ Email sending failed");
       return res.status(500).json({
         success: false,
         error: "Could not send verification email. Please check email settings and try again.",
       });
     }
 
+    console.log("✅ Registration successful, OTP sent");
     res.status(201).json({
       success: true,
       message: "Verification code sent to your email",
       userId: user._id,
     });
   } catch (err) {
+    console.error("❌ Register error:", err);
     next(err);
   }
 };

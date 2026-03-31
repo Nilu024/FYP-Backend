@@ -14,13 +14,25 @@ const requiredEnvVars = [
   'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET',
   'JWT_SECRET',
-  'MONGO_URI'
+  'MONGO_URI',
+  'SMTP_EMAIL',
+  'SMTP_PASSWORD'
 ];
 
 const missingVars = requiredEnvVars.filter(v => !process.env[v]);
 if (missingVars.length > 0) {
   console.warn(`⚠️  Missing environment variables: ${missingVars.join(', ')}`);
   console.warn('⚠️  Make sure these are set in your deployment environment.');
+}
+
+// Debug: Log key environment variables (only in development)
+if (process.env.NODE_ENV === "development") {
+  console.log("🔧 Environment check:");
+  console.log(`  JWT_SECRET: ${process.env.JWT_SECRET ? "✓" : "✗"}`);
+  console.log(`  MONGO_URI: ${process.env.MONGO_URI ? "✓" : "✗"}`);
+  console.log(`  SMTP_EMAIL: ${process.env.SMTP_EMAIL ? "✓" : "✗"}`);
+  console.log(`  SMTP_PASSWORD: ${process.env.SMTP_PASSWORD ? "✓" : "✗"}`);
+  console.log(`  RAZORPAY_KEY_ID: ${process.env.RAZORPAY_KEY_ID ? "✓" : "✗"}`);
 }
 
 // Connect to DB

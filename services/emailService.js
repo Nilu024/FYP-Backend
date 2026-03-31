@@ -124,6 +124,18 @@ const baseTemplate = ({ title, preheader, body, ctaText, ctaUrl }) => `
 const sendEmail = async ({ to, subject, html, text }) => {
   const config = getEmailConfig();
 
+  // Debug logging for email configuration
+  if (process.env.NODE_ENV === "development") {
+    console.log("Email config:", {
+      smtpHost: config.smtpHost,
+      smtpPort: config.smtpPort,
+      smtpSecure: config.smtpSecure,
+      smtpUser: config.smtpUser ? "***" : "MISSING",
+      smtpPass: config.smtpPass ? "***" : "MISSING",
+      fromAddress: config.fromAddress,
+    });
+  }
+
   if (!config.smtpUser || !config.smtpPass) {
     const missing = [];
     if (!config.smtpUser) missing.push("SMTP_EMAIL/SMTP_USER");
@@ -141,6 +153,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
       html,
       text,
     });
+    console.log(`Email sent successfully to ${to}`);
     return true;
   } catch (err) {
     console.error(`Email failed to ${to}:`, err.message, {
