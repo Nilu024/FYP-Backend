@@ -9,6 +9,8 @@ const User = require("../models/User");
 // @desc    Create a donation
 // @route   POST /api/donations
 // @access  Private
+const Razorpay = require("razorpay");
+
 exports.createDonation = async (req, res, next) => {
   try {
     const {
@@ -29,12 +31,16 @@ exports.createDonation = async (req, res, next) => {
       return res.status(400).json({ success: false, error: "needId is required" });
     }
 
+    if (!amount || amount < 10) {
+      return res.status(400).json({ success: false, error: "Valid amount (>= ₹10) is required" });
+    }
+
     const need = await Need.findById(needId).populate("charity");
     if (!need || need.status === "rejected" || need.status === "completed" || (need.deadline && new Date() > need.deadline)) {
       return res.status(404).json({ success: false, error: "Need not found or not accepting donations" });
     }
 
-    // Create donation record (status: pending — real payment gateway would update this)
+    // Create pending donation record
     const donation = await Donation.create({
       donor: req.user.id,
       charity: need.charity._id,
@@ -43,38 +49,46 @@ exports.createDonation = async (req, res, next) => {
       message,
       isAnonymous,
       paymentMethod,
-      // Simulate completed for demo — replace with payment gateway callback
-      status: "completed",
-      transactionId: `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+      status: "pending",
     });
 
-    // Update need raised amount
-    need.raisedAmount += amount;
-    need.donorCount += 1;
-    if (need.raisedAmount >= need.targetAmount) need.status = "completed";
-    await need.save();
-
-    // Update charity stats
-    await Charity.findByIdAndUpdate(need.charity._id, {
-      $inc: { totalRaised: amount, totalDonors: 1 },
+    // Create Razorpay order
+    const razorpayInstance = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
 
-    // Track interaction for KNN
-    const user = await User.findById(req.user.id);
-    await trackInteraction(user, need.category, need.charity._id, "donate");
+    const razorpayOrder = await razorpayInstance.orders.create({
+      amount: Math.round(amount * 100), // paise
+      currency: "INR",
+      receipt: `receipt_${donation._id}`,
+      payment_capture: 1, // auto-capture
+    });
 
-    // Push notification to donor
-    await sendUserNotification(req.user.id, {
-      title: "Donation Confirmed! 🎉",
-      body: `₹${amount} donated to ${need.charity.name}. Thank you!`,
-      type: "donation_confirmed",
-      data: { donationId: donation._id.toString(), url: `/donations/${donation._id}` },
-    }).catch(() => {});
+    // Save order ID to donation
+    donation.razorpayOrderId = razorpayOrder.id;
+    await donation.save();
 
-    // Email receipt (non-blocking)
-    sendDonationConfirmEmail(user, donation, need, need.charity).catch(() => {});
-
-    res.status(201).json({ success: true, data: donation });
+    res.status(201).json({
+      success: true,
+      data: {
+        id: donation._id,
+        key: process.env.RAZORPAY_KEY_ID,
+        amount: amount * 100,
+        currency: "INR",
+        name: "AADHAR Charity Platform",
+        description: `Support "${need.title}" by ${need.charity.name}`,
+        order_id: razorpayOrder.id,
+        prefill: {
+          name: req.user.name,
+          email: req.user.email,
+          contact: req.user.phone || "",
+        },
+        theme: { color: "#f59e0b" }, // saffron
+        modal: { ondismiss: () => { /* handle dismiss */ } },
+      },
+    });
+    return;
   } catch (err) {
     next(err);
   }
@@ -83,19 +97,23 @@ exports.createDonation = async (req, res, next) => {
 // @desc    Get my donations
 // @route   GET /api/donations/my
 // @access  Private
+
+// @desc    Get my donations
+// @route   GET /api/donations/my
+// @access  Private
 exports.getMyDonations = async (req, res, next) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    const donations = await Donation.find({ donor: req.user.id, status: "completed" })
+    const donations = await Donation.find({ donor: req.user.id })
       .populate("charity", "name logo")
       .populate("need", "title category")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
-    const total = await Donation.countDocuments({ donor: req.user.id, status: "completed" });
+    const total = await Donation.countDocuments({ donor: req.user.id });
     const totalAmount = await Donation.aggregate([
-      { $match: { donor: req.user.id._id || req.user._id, status: "completed" } },
+      { $match: { donor: req.user.id, status: "completed" } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]);
 
@@ -106,6 +124,78 @@ exports.getMyDonations = async (req, res, next) => {
       totalAmount: totalAmount[0]?.total || 0,
       data: donations,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Verify Razorpay payment
+// @route   POST /api/donations/verify
+// @access  Private
+exports.verifyPayment = async (req, res, next) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, donationId } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !donationId) {
+      return res.status(400).json({ success: false, error: "Missing payment details" });
+    }
+
+    const donation = await Donation.findById(donationId).populate("need charity donor");
+    if (!donation || donation.status !== "pending") {
+      return res.status(400).json({ success: false, error: "Invalid donation" });
+    }
+
+    if (donation.razorpayOrderId && donation.razorpayOrderId !== razorpay_order_id) {
+      return res.status(400).json({ success: false, error: "Order ID mismatch" });
+    }
+
+    // Verify Razorpay signature
+    const crypto = require("crypto");
+    const generated_signature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .digest("hex");
+
+    if (generated_signature !== razorpay_signature) {
+      // Mark as failed
+      donation.status = "failed";
+      await donation.save();
+      return res.status(400).json({ success: false, error: "Payment verification failed" });
+    }
+
+    // Payment successful - complete donation
+    donation.status = "completed";
+    donation.razorpayPaymentId = razorpay_payment_id;
+    donation.razorpaySignature = razorpay_signature;
+    donation.transactionId = razorpay_payment_id;
+    donation.receiptNumber = `AADHAR-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    await donation.save();
+
+    // Update need & charity stats
+    const need = donation.need;
+    if (need) {
+      need.raisedAmount += donation.amount;
+      need.donorCount += 1;
+      if (need.raisedAmount >= need.targetAmount) need.status = "completed";
+      await need.save();
+    }
+
+    await Charity.findByIdAndUpdate(donation.charity._id, {
+      $inc: { totalRaised: donation.amount, totalDonors: 1 },
+    });
+
+    // Notifications & email
+    const user = donation.donor;
+    await sendUserNotification(user.id, {
+      title: "Donation Confirmed! 🎉",
+      body: `₹${donation.amount} donated to ${donation.charity.name}. Thank you!`,
+      type: "donation_confirmed",
+      data: { donationId: donation._id.toString(), url: `/donations/${donation._id}` },
+    }).catch(() => {});
+
+    sendDonationConfirmEmail(user, donation, need, donation.charity).catch(() => {});
+
+    res.json({ success: true, data: donation });
   } catch (err) {
     next(err);
   }

@@ -36,6 +36,10 @@ const DonationSchema = new mongoose.Schema(
       type: String,
       enum: ["upi", "card", "netbanking", "wallet", "other"],
     },
+    // Razorpay fields
+    razorpayOrderId: { type: String },
+    razorpayPaymentId: { type: String },
+    razorpaySignature: { type: String },
     transactionId: { type: String, unique: true, sparse: true },
     receiptNumber: { type: String, unique: true, sparse: true },
     taxExempt: { type: Boolean, default: false },

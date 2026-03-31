@@ -57,6 +57,9 @@ app.use("/api/", limiter);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Raw body parser for Razorpay webhook verification
+app.use("/api/donations/webhook", express.raw({ type: "application/json" }));
+
 // Logger
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
