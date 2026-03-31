@@ -24,6 +24,14 @@ exports.createDonation = async (req, res, next) => {
       paymentMethod,
     } = req.body;
 
+    // Validate Razorpay configuration
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      return res.status(500).json({ 
+        success: false, 
+        error: "Payment gateway not configured. Please contact support." 
+      });
+    }
+
     const needId = needIdFromBody || needIdAlt;
     const charityId = charityIdFromBody || charityAlt;
 
@@ -88,6 +96,7 @@ exports.createDonation = async (req, res, next) => {
         modal: { ondismiss: () => { /* handle dismiss */ } },
       },
     });
+    return;
     return;
   } catch (err) {
     next(err);
