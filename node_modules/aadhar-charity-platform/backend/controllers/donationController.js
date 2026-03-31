@@ -13,6 +13,21 @@ const Razorpay = require("razorpay");
 
 exports.createDonation = async (req, res, next) => {
   try {
+    // Debug: Log environment variables (only in development)
+    if (process.env.NODE_ENV === "development") {
+      console.log("DEBUG: RAZORPAY_KEY_ID exists:", !!process.env.RAZORPAY_KEY_ID);
+      console.log("DEBUG: RAZORPAY_KEY_SECRET exists:", !!process.env.RAZORPAY_KEY_SECRET);
+    }
+
+    // Validate Razorpay configuration
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      console.error("ERROR: Razorpay keys not configured in environment variables");
+      return res.status(500).json({ 
+        success: false, 
+        error: "Payment gateway configuration missing. Admin: Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET environment variables." 
+      });
+    }
+
     const {
       needId: needIdFromBody,
       need: needIdAlt,
@@ -23,14 +38,6 @@ exports.createDonation = async (req, res, next) => {
       isAnonymous,
       paymentMethod,
     } = req.body;
-
-    // Validate Razorpay configuration
-    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-      return res.status(500).json({ 
-        success: false, 
-        error: "Payment gateway not configured. Please contact support." 
-      });
-    }
 
     const needId = needIdFromBody || needIdAlt;
     const charityId = charityIdFromBody || charityAlt;

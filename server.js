@@ -9,6 +9,20 @@ const path = require("path");
 // Load env vars
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
+// Validate critical environment variables
+const requiredEnvVars = [
+  'RAZORPAY_KEY_ID',
+  'RAZORPAY_KEY_SECRET',
+  'JWT_SECRET',
+  'MONGO_URI'
+];
+
+const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingVars.length > 0) {
+  console.warn(`⚠️  Missing environment variables: ${missingVars.join(', ')}`);
+  console.warn('⚠️  Make sure these are set in your deployment environment.');
+}
+
 // Connect to DB
 const connectDB = require("./config/db");
 
