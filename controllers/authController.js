@@ -12,7 +12,10 @@ const sendTokenResponse = (user, statusCode, res) => {
   res.status(statusCode).json({
     success: true,
     token,
-    user: userData,
+    user: {
+      ...userData,
+      emailVerified: user.isVerified,
+    },
   });
 };
 
@@ -89,17 +92,21 @@ const register = async (req, res, next) => {
 
     const emailSent = await sendOTPEmail(user, otp);
 
-    if (!emailSent) {
-      return res.status(500).json({
-        success: false,
-        error: "Could not send verification email. Please check email settings and try again.",
-      });
-    }
-
+    // Return success regardless of email sending status
+    // Return token and user so frontend can auto-login
+    const token = user.getSignedJwtToken();
+    const userData = user.toObject();
+    delete userData.password;
+    
     res.status(201).json({
       success: true,
-      message: "Verification code sent to your email",
-      userId: user._id,
+      message: emailSent ? "Verification code sent to your email" : "Account created! Please verify your email.",
+      token,
+      user: {
+        ...userData,
+        emailVerified: user.isVerified,
+      },
+      emailSent: emailSent,
     });
   } catch (err) {
     next(err);
@@ -125,9 +132,8 @@ const login = async (req, res, next) => {
       return res.status(401).json({ success: false, error: "Invalid credentials" });
     }
 
-    if (!user.isVerified) {
-      return res.status(401).json({ success: false, error: "Please verify your email first" });
-    }
+    // Allow login even if email is not verified
+    // Frontend will show verification dialog if needed
 
     user.lastLogin = new Date();
     await user.save();
@@ -314,7 +320,10 @@ const verifyFirebaseToken = async (req, res, next) => {
     res.json({
       success: true,
       token,
-      user: userData,
+      user: {
+        ...userData,
+        emailVerified: user.isVerified,
+      },
     });
   } catch (err) {
     console.error('Firebase token verification error:', err.message);
