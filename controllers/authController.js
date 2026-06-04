@@ -101,7 +101,7 @@ const register = async (req, res, next) => {
     await createOrUpdateLocalUser();
 
     console.log("📧 Attempting to send OTP email...");
-    const emailSent = await sendOTPEmail(user, otp);
+    // const emailSent = await sendOTPEmail(user, otp);
 
     // Return success regardless of email sending status
     // Return token and user so frontend can auto-login
@@ -111,13 +111,13 @@ const register = async (req, res, next) => {
     
     res.status(201).json({
       success: true,
-      message: emailSent ? "Verification code sent to your email" : "Account created! Please verify your email.",
+      message: "Account created! Please verify your email.",
       token,
       user: {
         ...userData,
         emailVerified: user.isVerified,
       },
-      emailSent: emailSent,
+      // emailSent: emailSent,
     });
   } catch (err) {
     console.error("❌ Register error:", err);
